@@ -2,6 +2,7 @@
 // 팝니다(sell) + 거래가능물품(display=2) + 낮은가격순(orderby=3) + 서버별(opt1)
 
 import { SERVERS, SITE } from "@/data/site";
+import { readSettings } from "@/lib/settings";
 
 const BAROTEM_MONEY_URL =
   "https://www.barotem.com/product/productTable/2382r902";
@@ -108,14 +109,16 @@ async function fetchKrwToVnd(): Promise<number> {
 }
 
 export async function getPriceTable(): Promise<PriceTableData> {
-  const [krwToVnd, ...results] = await Promise.all([
+  const [settings, krwToVnd, ...results] = await Promise.all([
+    readSettings(),
     fetchKrwToVnd(),
     ...SERVERS.map((s) => fetchServerLowest(s.id)),
   ]);
+  const discountRate = settings.discountPercent / 100;
 
   const servers: ServerPrice[] = SERVERS.map((s, i) => {
     const { price, count } = results[i];
-    const buyKrw = price !== null ? price * (1 - SITE.discountRate) : null;
+    const buyKrw = price !== null ? price * (1 - discountRate) : null;
     return {
       serverId: s.id,
       nameKo: s.nameKo,
@@ -131,7 +134,7 @@ export async function getPriceTable(): Promise<PriceTableData> {
   return {
     updatedAt: new Date().toISOString(),
     krwToVnd,
-    discountRate: SITE.discountRate,
+    discountRate,
     servers,
   };
 }

@@ -32,6 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# runtime settings (admin 페이지에서 저장)
+/data/
 
 # vercel
 .vercel
