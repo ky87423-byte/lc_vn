@@ -8,6 +8,13 @@
 
 import { SERVERS, SITE } from "@/data/site";
 import { readSettings } from "@/lib/settings";
+import {
+  appendHistory,
+  change24h,
+  downsample,
+  readHistory,
+  seriesFor,
+} from "@/lib/history";
 
 const BAROTEM_MONEY_URL =
   "https://www.barotem.com/product/productTable/2382r902";
@@ -41,6 +48,10 @@ export interface ServerPrice {
   /** 매입가 VND/만 아데나 */
   buyPricePerManVnd: number | null;
   listingCount: number;
+  /** 24시간 전 대비 등락률(%) — 이력 부족 시 null */
+  change24hPercent: number | null;
+  /** 최근 24시간 매입가(VND) 스파크라인 (다운샘플) */
+  spark: number[];
 }
 
 export interface PriceTableData {
@@ -133,7 +144,14 @@ async function fetchSnapshot(): Promise<MarketSnapshot> {
     fetchKrwToVnd(),
     ...SERVERS.map((s) => fetchServerLowest(s.id)),
   ]);
-  return { fetchedAt: Date.now(), krwToVnd, quotes };
+  const snap: MarketSnapshot = { fetchedAt: Date.now(), krwToVnd, quotes };
+  // 시세 이력에 기록 (차트/등락률용)
+  const prices: Record<string, number | null> = {};
+  SERVERS.forEach((s, i) => {
+    prices[s.id] = quotes[i].price;
+  });
+  await appendHistory(snap.fetchedAt, prices);
+  return snap;
 }
 
 async function getSnapshot(cacheSeconds: number): Promise<MarketSnapshot> {
@@ -160,10 +178,17 @@ export async function getPriceTable(): Promise<PriceTableData> {
   const settings = await readSettings();
   const snap = await getSnapshot(settings.cacheSeconds);
   const discountRate = settings.discountPercent / 100;
+  const history = await readHistory();
+  const since24h = Date.now() - 24 * 60 * 60 * 1000;
+  const toBuyVnd = (marketKrw: number) =>
+    Math.round((marketKrw * (1 - discountRate) * snap.krwToVnd) / 100) * 100;
 
   const servers: ServerPrice[] = SERVERS.map((s, i) => {
     const { price, count } = snap.quotes[i];
     const buyKrw = price !== null ? price * (1 - discountRate) : null;
+    const spark = downsample(seriesFor(history, s.id, since24h), 40).map(
+      (p) => toBuyVnd(p.v)
+    );
     return {
       serverId: s.id,
       nameKo: s.nameKo,
@@ -175,6 +200,8 @@ export async function getPriceTable(): Promise<PriceTableData> {
           ? Math.round((buyKrw * snap.krwToVnd) / 100) * 100
           : null,
       listingCount: count,
+      change24hPercent: change24h(history, s.id, price),
+      spark,
     };
   });
 
