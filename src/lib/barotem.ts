@@ -1,12 +1,12 @@
-// 바로템 시세 조회 — 리니지클래식 게임머니(2382r902)
+// 바로템 시세 조회 — 게임별 게임머니 스레드
 // 팝니다(sell) + 거래가능물품(display=2) + 낮은가격순(orderby=3) + 서버별(opt1)
 //
-// 캐시 전략: 시세 원본(스냅샷)을 프로세스 메모리에 캐시하고,
+// 캐시 전략: 게임별 시세 스냅샷을 프로세스 메모리에 캐시하고,
 // 만료 시에도 단 1개의 갱신만 수행(나머지 요청은 이전 데이터 반환).
-// → 방문자 수와 무관하게 바로템 호출은 캐시 주기당 1회(29 요청)뿐.
+// → 방문자 수와 무관하게 바로템 호출은 캐시 주기당 게임별 1회뿐.
 // 할인율은 요청 시점에 적용하므로 관리자 변경이 즉시 반영됨.
 
-import { SERVERS, SITE } from "@/data/site";
+import { GameInfo, SITE } from "@/data/site";
 import { readSettings } from "@/lib/settings";
 import {
   appendHistory,
@@ -16,9 +16,6 @@ import {
   seriesFor,
 } from "@/lib/history";
 
-const BAROTEM_MONEY_URL =
-  "https://www.barotem.com/product/productTable/2382r902";
-
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36",
@@ -26,7 +23,7 @@ const HEADERS = {
 };
 
 interface BarotemRow {
-  unit_price?: string; // 예: "만당 2,491원"
+  unit_price?: string; // 예: "만당 2,491원", "천만당 4,000원"
   product_name?: string;
   server?: string;
 }
@@ -41,12 +38,12 @@ export interface ServerPrice {
   serverId: string;
   nameKo: string;
   nameEn: string;
-  /** 바로템 최저가 (원/만 아데나), 매물 없으면 null */
-  marketPricePerManKrw: number | null;
-  /** 매입가 = 최저가 × (1 - discountRate), 원/만 아데나 */
-  buyPricePerManKrw: number | null;
-  /** 매입가 VND/만 아데나 */
-  buyPricePerManVnd: number | null;
+  /** 바로템 최저가 (원/단위), 매물 없으면 null */
+  marketPricePerUnitKrw: number | null;
+  /** 매입가 = 최저가 × (1 - discountRate), 원/단위 */
+  buyPricePerUnitKrw: number | null;
+  /** 매입가 VND/단위 */
+  buyPricePerUnitVnd: number | null;
   listingCount: number;
   /** 24시간 전 대비 등락률(%) — 이력 부족 시 null */
   change24hPercent: number | null;
@@ -55,6 +52,14 @@ export interface ServerPrice {
 }
 
 export interface PriceTableData {
+  game: {
+    slug: string;
+    nameKo: string;
+    nameEn: string;
+    currency: string;
+    /** 시세 단위 화폐량 (예: 10000 = 만당) */
+    unitAmount: number;
+  };
   updatedAt: string;
   krwToVnd: number;
   discountRate: number;
@@ -62,13 +67,24 @@ export interface PriceTableData {
   servers: ServerPrice[];
 }
 
-/** "만당 2,491원" → 2491 */
-function parseUnitPrice(unitPrice: string | undefined): number | null {
+/** "만당 2,491원" → { price: 2491, unit: 10000 } */
+const UNIT_MAP: Record<string, number> = {
+  만: 10_000,
+  십만: 100_000,
+  백만: 1_000_000,
+  천만: 10_000_000,
+  억: 100_000_000,
+};
+
+function parseUnitPrice(
+  unitPrice: string | undefined
+): { price: number; unit: number | null } | null {
   if (!unitPrice) return null;
-  const m = unitPrice.match(/([\d,]+(?:\.\d+)?)\s*원/);
+  const m = unitPrice.match(/(?:([가-힣]+)당)?\s*([\d,]+(?:\.\d+)?)\s*원/);
   if (!m) return null;
-  const n = parseFloat(m[1].replace(/,/g, ""));
-  return Number.isFinite(n) && n > 0 ? n : null;
+  const n = parseFloat(m[2].replace(/,/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return { price: n, unit: m[1] ? (UNIT_MAP[m[1]] ?? null) : null };
 }
 
 /** "165건" → 165 */
@@ -80,10 +96,14 @@ function parseTotal(total: string | undefined): number {
 
 interface ServerQuote {
   price: number | null;
+  unit: number | null;
   count: number;
 }
 
-async function fetchServerLowest(serverId: string): Promise<ServerQuote> {
+async function fetchServerLowest(
+  threadId: string,
+  serverId: string
+): Promise<ServerQuote> {
   const params = new URLSearchParams({
     page: "1",
     sell: "sell",
@@ -92,20 +112,25 @@ async function fetchServerLowest(serverId: string): Promise<ServerQuote> {
     opt1: serverId,
   });
   try {
-    const res = await fetch(`${BAROTEM_MONEY_URL}?${params}`, {
-      headers: HEADERS,
-      cache: "no-store", // 캐시는 아래 스냅샷 레이어에서 직접 관리
-    });
-    if (!res.ok) return { price: null, count: 0 };
+    const res = await fetch(
+      `https://www.barotem.com/product/productTable/${threadId}?${params}`,
+      {
+        headers: HEADERS,
+        cache: "no-store", // 캐시는 아래 스냅샷 레이어에서 직접 관리
+      }
+    );
+    if (!res.ok) return { price: null, unit: null, count: 0 };
     const data = (await res.json()) as BarotemResponse;
     if (data.code !== 200 || !Array.isArray(data.rows) || data.rows.length === 0)
-      return { price: null, count: parseTotal(data.total) };
+      return { price: null, unit: null, count: parseTotal(data.total) };
+    const parsed = parseUnitPrice(data.rows[0].unit_price);
     return {
-      price: parseUnitPrice(data.rows[0].unit_price),
+      price: parsed?.price ?? null,
+      unit: parsed?.unit ?? null,
       count: parseTotal(data.total),
     };
   } catch {
-    return { price: null, count: 0 };
+    return { price: null, unit: null, count: 0 };
   }
 }
 
@@ -128,62 +153,75 @@ async function fetchKrwToVnd(): Promise<number> {
   }
 }
 
-// ---- 시세 스냅샷 메모리 캐시 ----
+// ---- 게임별 시세 스냅샷 메모리 캐시 ----
 
 interface MarketSnapshot {
   fetchedAt: number;
   krwToVnd: number;
-  quotes: ServerQuote[]; // SERVERS와 같은 순서
+  quotes: ServerQuote[]; // game.servers와 같은 순서
+  unitAmount: number; // 바로템에서 감지한 시세 단위 (폴백: game.fallbackUnit)
 }
 
-let snapshot: MarketSnapshot | null = null;
-let inflight: Promise<MarketSnapshot> | null = null;
+const snapshots = new Map<string, MarketSnapshot>();
+const inflights = new Map<string, Promise<MarketSnapshot>>();
 
-async function fetchSnapshot(): Promise<MarketSnapshot> {
+async function fetchSnapshot(game: GameInfo): Promise<MarketSnapshot> {
   const [krwToVnd, ...quotes] = await Promise.all([
     fetchKrwToVnd(),
-    ...SERVERS.map((s) => fetchServerLowest(s.id)),
+    ...game.servers.map((s) => fetchServerLowest(game.threadId, s.id)),
   ]);
-  const snap: MarketSnapshot = { fetchedAt: Date.now(), krwToVnd, quotes };
+  const unitAmount =
+    quotes.find((q) => q.unit !== null)?.unit ?? game.fallbackUnit;
+  const snap: MarketSnapshot = {
+    fetchedAt: Date.now(),
+    krwToVnd,
+    quotes,
+    unitAmount,
+  };
   // 시세 이력에 기록 (차트/등락률용)
   const prices: Record<string, number | null> = {};
-  SERVERS.forEach((s, i) => {
+  game.servers.forEach((s, i) => {
     prices[s.id] = quotes[i].price;
   });
-  await appendHistory(snap.fetchedAt, prices);
+  await appendHistory(game.slug, snap.fetchedAt, prices);
   return snap;
 }
 
-async function getSnapshot(cacheSeconds: number): Promise<MarketSnapshot> {
-  const fresh =
-    snapshot !== null && Date.now() - snapshot.fetchedAt < cacheSeconds * 1000;
-  if (fresh) return snapshot!;
+async function getSnapshot(
+  game: GameInfo,
+  cacheSeconds: number
+): Promise<MarketSnapshot> {
+  const cached = snapshots.get(game.slug);
+  if (cached && Date.now() - cached.fetchedAt < cacheSeconds * 1000)
+    return cached;
 
-  // 갱신은 동시에 1개만 — 나머지 요청은 이전 스냅샷(있으면)을 즉시 반환
+  // 갱신은 게임당 동시에 1개만 — 나머지 요청은 이전 스냅샷(있으면)을 즉시 반환
+  let inflight = inflights.get(game.slug);
   if (!inflight) {
-    inflight = fetchSnapshot()
+    inflight = fetchSnapshot(game)
       .then((s) => {
-        snapshot = s;
+        snapshots.set(game.slug, s);
         return s;
       })
       .finally(() => {
-        inflight = null;
+        inflights.delete(game.slug);
       });
+    inflights.set(game.slug, inflight);
   }
-  if (snapshot) return snapshot; // stale-while-revalidate
+  if (cached) return cached; // stale-while-revalidate
   return inflight; // 첫 요청(스냅샷 없음)만 대기
 }
 
-export async function getPriceTable(): Promise<PriceTableData> {
+export async function getPriceTable(game: GameInfo): Promise<PriceTableData> {
   const settings = await readSettings();
-  const snap = await getSnapshot(settings.cacheSeconds);
+  const snap = await getSnapshot(game, settings.cacheSeconds);
   const discountRate = settings.discountPercent / 100;
-  const history = await readHistory();
+  const history = await readHistory(game.slug);
   const since24h = Date.now() - 24 * 60 * 60 * 1000;
   const toBuyVnd = (marketKrw: number) =>
     Math.round((marketKrw * (1 - discountRate) * snap.krwToVnd) / 100) * 100;
 
-  const servers: ServerPrice[] = SERVERS.map((s, i) => {
+  const servers: ServerPrice[] = game.servers.map((s, i) => {
     const { price, count } = snap.quotes[i];
     const buyKrw = price !== null ? price * (1 - discountRate) : null;
     const spark = downsample(seriesFor(history, s.id, since24h), 40).map(
@@ -193,9 +231,9 @@ export async function getPriceTable(): Promise<PriceTableData> {
       serverId: s.id,
       nameKo: s.nameKo,
       nameEn: s.nameEn,
-      marketPricePerManKrw: price,
-      buyPricePerManKrw: buyKrw !== null ? Math.floor(buyKrw) : null,
-      buyPricePerManVnd:
+      marketPricePerUnitKrw: price,
+      buyPricePerUnitKrw: buyKrw !== null ? Math.floor(buyKrw) : null,
+      buyPricePerUnitVnd:
         buyKrw !== null
           ? Math.round((buyKrw * snap.krwToVnd) / 100) * 100
           : null,
@@ -206,6 +244,13 @@ export async function getPriceTable(): Promise<PriceTableData> {
   });
 
   return {
+    game: {
+      slug: game.slug,
+      nameKo: game.nameKo,
+      nameEn: game.nameEn,
+      currency: game.currency,
+      unitAmount: snap.unitAmount,
+    },
     updatedAt: new Date(snap.fetchedAt).toISOString(),
     krwToVnd: snap.krwToVnd,
     discountRate,

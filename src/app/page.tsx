@@ -10,12 +10,12 @@ const STEPS = [
   {
     title: "2. Liên hệ",
     titleKo: "연락",
-    desc: "Nhắn tin qua Zalo / Facebook kèm tên máy chủ và số lượng Adena muốn bán.",
+    desc: "Nhắn tin qua Zalo / Facebook kèm tên game, máy chủ và số lượng muốn bán.",
   },
   {
     title: "3. Giao dịch trong game",
     titleKo: "게임 내 거래",
-    desc: "Hẹn địa điểm trong game và chuyển Adena trực tiếp cho chúng tôi.",
+    desc: "Hẹn địa điểm trong game và chuyển tiền game trực tiếp cho chúng tôi.",
   },
   {
     title: "4. Nhận tiền ngay",
@@ -41,7 +41,11 @@ const FAQS = [
   },
   {
     q: "Giao dịch có an toàn không?",
-    a: "Giao dịch trực tiếp 1:1 trong game, thanh toán ngay khi nhận Adena. Bạn có thể bán thử số lượng nhỏ trước để kiểm tra.",
+    a: "Giao dịch trực tiếp 1:1 trong game, thanh toán ngay khi nhận tiền game. Bạn có thể bán thử số lượng nhỏ trước để kiểm tra.",
+  },
+  {
+    q: "Hỗ trợ những game nào?",
+    a: "Lineage Classic, Aion2, MapleStory World và SOL:enchant. Chọn game ở phía trên bảng giá để xem giá thu mua theo máy chủ.",
   },
 ];
 
@@ -51,7 +55,7 @@ export default function Home() {
       {/* Hero */}
       <section className="py-14 text-center">
         <p className="mb-2 text-sm font-semibold tracking-widest text-amber-500">
-          LINEAGE CLASSIC (리니지 클래식)
+          LINEAGE CLASSIC · AION2 · MAPLESTORY WORLD · SOL:ENCHANT
         </p>
         <h1 className="text-3xl font-extrabold leading-tight text-zinc-50 sm:text-5xl">
           {SITE.tagline}
@@ -142,7 +146,7 @@ export default function Home() {
       {/* Contact CTA */}
       <section className="rounded-2xl border border-amber-500/30 bg-gradient-to-b from-amber-500/10 to-transparent p-8 text-center">
         <h2 className="text-2xl font-bold text-zinc-50">
-          Sẵn sàng bán Adena?
+          Sẵn sàng bán tiền game?
         </h2>
         <p className="mt-2 text-zinc-400">
           Liên hệ ngay — phản hồi nhanh, thanh toán ngay lập tức.

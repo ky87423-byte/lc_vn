@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { PriceTableData } from "@/lib/barotem";
+import { DEFAULT_GAME_SLUG, GAMES } from "@/data/site";
 
 const nfVnd = new Intl.NumberFormat("vi-VN");
 const nfKrw = new Intl.NumberFormat("ko-KR");
@@ -66,7 +67,15 @@ interface HistoryPointDto {
   marketKrw: number;
 }
 
-function ExpandedChart({ serverId }: { serverId: string }) {
+function ExpandedChart({
+  game,
+  serverId,
+  unitLabel,
+}: {
+  game: string;
+  serverId: string;
+  unitLabel: string;
+}) {
   const [range, setRange] = useState<"24h" | "7d">("24h");
   const [points, setPoints] = useState<HistoryPointDto[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -75,7 +84,7 @@ function ExpandedChart({ serverId }: { serverId: string }) {
     let cancelled = false;
     setPoints(null);
     setFailed(false);
-    fetch(`/api/history?server=${serverId}&range=${range}`)
+    fetch(`/api/history?game=${game}&server=${serverId}&range=${range}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d: { points: HistoryPointDto[] }) => {
         if (!cancelled) setPoints(d.points);
@@ -86,7 +95,7 @@ function ExpandedChart({ serverId }: { serverId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [serverId, range]);
+  }, [game, serverId, range]);
 
   const w = 720;
   const h = 180;
@@ -169,7 +178,7 @@ function ExpandedChart({ serverId }: { serverId: string }) {
     <div className="px-4 py-4">
       <div className="mb-3 flex items-center gap-2">
         <span className="text-sm font-medium text-zinc-300">
-          Giá thu mua (VND / 10.000 Adena)
+          Giá thu mua (VND / {unitLabel})
         </span>
         <div className="ml-auto flex gap-1">
           {(["24h", "7d"] as const).map((r) => (
@@ -194,27 +203,34 @@ function ExpandedChart({ serverId }: { serverId: string }) {
 
 // ---- 시세 표 ----
 export default function PriceTable() {
+  const [gameSlug, setGameSlug] = useState(DEFAULT_GAME_SLUG);
   const [data, setData] = useState<PriceTableData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    setError(false);
-    try {
-      const res = await fetch("/api/prices");
-      if (!res.ok) throw new Error("failed");
-      setData((await res.json()) as PriceTableData);
-    } catch {
-      // 자동 갱신 실패는 조용히 무시하고 기존 표 유지
-      if (!silent) setError(true);
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      setError(false);
+      try {
+        const res = await fetch(`/api/prices?game=${gameSlug}`);
+        if (!res.ok) throw new Error("failed");
+        setData((await res.json()) as PriceTableData);
+      } catch {
+        // 자동 갱신 실패는 조용히 무시하고 기존 표 유지
+        if (!silent) setError(true);
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [gameSlug]
+  );
 
+  // 게임 변경 시 표 초기화 후 다시 로드
   useEffect(() => {
+    setData(null);
+    setExpanded(null);
     void load();
   }, [load]);
 
@@ -236,44 +252,73 @@ export default function PriceTable() {
     };
   }, [load, pollMs]);
 
+  const unitLabel = data
+    ? `${nfVnd.format(data.game.unitAmount)} ${data.game.currency}`
+    : "";
+
+  const gameTabs = (
+    <div className="mb-4 flex flex-wrap gap-2">
+      {GAMES.map((g) => (
+        <button
+          key={g.slug}
+          onClick={() => setGameSlug(g.slug)}
+          className={`rounded-lg border px-4 py-2 text-sm font-semibold ${
+            gameSlug === g.slug
+              ? "border-amber-500 bg-amber-500/10 text-amber-400"
+              : "border-zinc-700 text-zinc-300 hover:border-zinc-500"
+          }`}
+        >
+          {g.nameEn}
+        </button>
+      ))}
+    </div>
+  );
+
   if (loading && !data) {
     return (
-      <div className="space-y-2">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-12 animate-pulse rounded-lg bg-zinc-800/60"
-          />
-        ))}
-        <p className="pt-2 text-center text-sm text-zinc-400">
-          Đang tải bảng giá… / 시세 불러오는 중…
-        </p>
+      <div>
+        {gameTabs}
+        <div className="space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-12 animate-pulse rounded-lg bg-zinc-800/60"
+            />
+          ))}
+          <p className="pt-2 text-center text-sm text-zinc-400">
+            Đang tải bảng giá… / 시세 불러오는 중…
+          </p>
+        </div>
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="rounded-lg border border-red-800 bg-red-950/40 p-6 text-center">
-        <p className="text-red-300">
-          Không thể tải bảng giá. Vui lòng thử lại.
-        </p>
-        <button
-          onClick={() => void load()}
-          className="mt-3 rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600"
-        >
-          Thử lại / 다시 시도
-        </button>
+      <div>
+        {gameTabs}
+        <div className="rounded-lg border border-red-800 bg-red-950/40 p-6 text-center">
+          <p className="text-red-300">
+            Không thể tải bảng giá. Vui lòng thử lại.
+          </p>
+          <button
+            onClick={() => void load()}
+            className="mt-3 rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600"
+          >
+            Thử lại / 다시 시도
+          </button>
+        </div>
       </div>
     );
   }
 
   const updated = new Date(data.updatedAt);
-  const active = data.servers.filter((s) => s.buyPricePerManKrw !== null);
-  const inactive = data.servers.filter((s) => s.buyPricePerManKrw === null);
+  const active = data.servers.filter((s) => s.buyPricePerUnitKrw !== null);
+  const inactive = data.servers.filter((s) => s.buyPricePerUnitKrw === null);
 
   return (
     <div>
+      {gameTabs}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm text-zinc-400">
         <span>
           Cập nhật: {updated.toLocaleString("vi-VN")} · 1 KRW ≈{" "}
@@ -288,71 +333,85 @@ export default function PriceTable() {
         </button>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-zinc-800">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-zinc-900 text-xs uppercase text-zinc-400">
-            <tr>
-              <th className="px-4 py-3">Máy chủ (서버)</th>
-              <th className="px-4 py-3 text-right">
-                Giá thu mua (VND / 10.000 Adena)
-              </th>
-              <th className="px-4 py-3 text-right">KRW</th>
-              <th className="px-4 py-3 text-right">24h</th>
-              <th className="px-4 py-3 text-center">Biểu đồ</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-800">
-            {active.map((s) => (
-              <Fragment key={s.serverId}>
-                <tr
-                  onClick={() =>
-                    setExpanded(expanded === s.serverId ? null : s.serverId)
-                  }
-                  className={`cursor-pointer hover:bg-zinc-900/60 ${
-                    expanded === s.serverId ? "bg-zinc-900/60" : ""
-                  }`}
-                >
-                  <td className="px-4 py-3 font-medium text-zinc-100">
-                    {s.nameEn}{" "}
-                    <span className="text-zinc-500">({s.nameKo})</span>
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold text-amber-400">
-                    {s.buyPricePerManVnd !== null
-                      ? `${nfVnd.format(s.buyPricePerManVnd)} ₫`
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right text-zinc-400">
-                    {s.buyPricePerManKrw !== null
-                      ? `₩${nfKrw.format(s.buyPricePerManKrw)}`
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <ChangeBadge percent={s.change24hPercent} />
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <Sparkline values={s.spark} />
-                  </td>
-                </tr>
-                {expanded === s.serverId && (
-                  <tr className="bg-zinc-950/60">
-                    <td colSpan={5}>
-                      <ExpandedChart serverId={s.serverId} />
+      {active.length === 0 ? (
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8 text-center text-sm text-zinc-400">
+          Hiện chưa có niêm yết {data.game.currency} trên thị trường cho{" "}
+          {data.game.nameEn}. Liên hệ trực tiếp để báo giá!
+          <span className="mt-1 block text-xs text-zinc-500">
+            (현재 매물 없음 — 직접 문의)
+          </span>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-zinc-800">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-zinc-900 text-xs uppercase text-zinc-400">
+              <tr>
+                <th className="px-4 py-3">Máy chủ (서버)</th>
+                <th className="px-4 py-3 text-right">
+                  Giá thu mua (VND / {unitLabel})
+                </th>
+                <th className="px-4 py-3 text-right">KRW</th>
+                <th className="px-4 py-3 text-right">24h</th>
+                <th className="px-4 py-3 text-center">Biểu đồ</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {active.map((s) => (
+                <Fragment key={s.serverId}>
+                  <tr
+                    onClick={() =>
+                      setExpanded(expanded === s.serverId ? null : s.serverId)
+                    }
+                    className={`cursor-pointer hover:bg-zinc-900/60 ${
+                      expanded === s.serverId ? "bg-zinc-900/60" : ""
+                    }`}
+                  >
+                    <td className="px-4 py-3 font-medium text-zinc-100">
+                      {s.nameEn}{" "}
+                      <span className="text-zinc-500">({s.nameKo})</span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold text-amber-400">
+                      {s.buyPricePerUnitVnd !== null
+                        ? `${nfVnd.format(s.buyPricePerUnitVnd)} ₫`
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right text-zinc-400">
+                      {s.buyPricePerUnitKrw !== null
+                        ? `₩${nfKrw.format(s.buyPricePerUnitKrw)}`
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <ChangeBadge percent={s.change24hPercent} />
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <Sparkline values={s.spark} />
                     </td>
                   </tr>
-                )}
-              </Fragment>
-            ))}
-            {inactive.length > 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-3 text-xs text-zinc-500">
-                  Liên hệ để báo giá (시세 문의):{" "}
-                  {inactive.map((s) => s.nameEn).join(", ")}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                  {expanded === s.serverId && (
+                    <tr className="bg-zinc-950/60">
+                      <td colSpan={5}>
+                        <ExpandedChart
+                          game={data.game.slug}
+                          serverId={s.serverId}
+                          unitLabel={unitLabel}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+              {inactive.length > 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-3 text-xs text-zinc-500">
+                    Liên hệ để báo giá (시세 문의):{" "}
+                    {inactive.map((s) => s.nameEn).join(", ")}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <p className="mt-3 text-xs text-zinc-500">
         * Giá thu mua được tính theo giá thị trường thời gian thực trừ{" "}

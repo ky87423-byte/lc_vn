@@ -6,12 +6,18 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   const { getPriceTable } = await import("@/lib/barotem");
+  const { GAMES } = await import("@/data/site");
 
-  const tick = () => {
-    getPriceTable().catch(() => {
-      // 수집 실패는 다음 주기에 재시도
-    });
+  const tick = async () => {
+    // 게임별 순차 수집 — 바로템에 동시 부하를 주지 않도록
+    for (const game of GAMES) {
+      try {
+        await getPriceTable(game);
+      } catch {
+        // 수집 실패는 다음 주기에 재시도
+      }
+    }
   };
-  tick();
-  setInterval(tick, 60 * 1000);
+  void tick();
+  setInterval(() => void tick(), 60 * 1000);
 }

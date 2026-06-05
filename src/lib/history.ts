@@ -1,4 +1,4 @@
-// 시세 이력 — 스냅샷마다 서버별 최저가(원/만)를 data/history.json에 축적
+// 시세 이력 — 게임별로 스냅샷마다 서버별 최저가를 data/history-{game}.json에 축적
 // 7일 초과분은 정리.
 // 주의: Next.js는 instrumentation과 라우트 핸들러를 별도 모듈 인스턴스로 로드하므로
 // 파일을 단일 진실 공급원으로 사용한다(append 시 항상 디스크에서 다시 읽어 병합).
@@ -6,22 +6,25 @@
 import { promises as fs } from "fs";
 import path from "path";
 
-const HISTORY_PATH = path.join(process.cwd(), "data", "history.json");
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7일
 const MIN_POINT_GAP_MS = 15 * 1000; // 너무 촘촘한 중복 포인트 방지
 const READ_TTL_MS = 15 * 1000; // 조회용 짧은 메모리 캐시
 
-let cache: { points: HistoryPoint[]; loadedAt: number } | null = null;
-
 export interface HistoryPoint {
   t: number; // epoch ms
-  /** serverId → 시세(원/만 아데나), 매물 없으면 null */
+  /** serverId → 시세(원/단위), 매물 없으면 null */
   p: Record<string, number | null>;
 }
 
-async function readFromDisk(): Promise<HistoryPoint[]> {
+const caches = new Map<string, { points: HistoryPoint[]; loadedAt: number }>();
+
+function historyPath(gameSlug: string): string {
+  return path.join(process.cwd(), "data", `history-${gameSlug}.json`);
+}
+
+async function readFromDisk(gameSlug: string): Promise<HistoryPoint[]> {
   try {
-    const raw = await fs.readFile(HISTORY_PATH, "utf8");
+    const raw = await fs.readFile(historyPath(gameSlug), "utf8");
     const parsed = JSON.parse(raw) as { points?: HistoryPoint[] };
     return Array.isArray(parsed.points) ? parsed.points : [];
   } catch {
@@ -29,33 +32,33 @@ async function readFromDisk(): Promise<HistoryPoint[]> {
   }
 }
 
-export async function readHistory(): Promise<HistoryPoint[]> {
-  if (cache && Date.now() - cache.loadedAt < READ_TTL_MS) return cache.points;
-  const points = await readFromDisk();
-  cache = { points, loadedAt: Date.now() };
+export async function readHistory(gameSlug: string): Promise<HistoryPoint[]> {
+  const cached = caches.get(gameSlug);
+  if (cached && Date.now() - cached.loadedAt < READ_TTL_MS)
+    return cached.points;
+  const points = await readFromDisk(gameSlug);
+  caches.set(gameSlug, { points, loadedAt: Date.now() });
   return points;
 }
 
 export async function appendHistory(
+  gameSlug: string,
   t: number,
   prices: Record<string, number | null>
 ): Promise<void> {
   // 항상 디스크 기준으로 병합 — 다른 모듈 인스턴스의 기록을 덮어쓰지 않도록
-  const points = await readFromDisk();
+  const points = await readFromDisk(gameSlug);
   const last = points[points.length - 1];
   if (!last || t - last.t >= MIN_POINT_GAP_MS) {
     points.push({ t, p: prices });
   }
   const cutoff = Date.now() - MAX_AGE_MS;
   const pruned = points.filter((pt) => pt.t >= cutoff);
-  cache = { points: pruned, loadedAt: Date.now() };
+  caches.set(gameSlug, { points: pruned, loadedAt: Date.now() });
   try {
-    await fs.mkdir(path.dirname(HISTORY_PATH), { recursive: true });
-    await fs.writeFile(
-      HISTORY_PATH,
-      JSON.stringify({ points: pruned }),
-      "utf8"
-    );
+    const file = historyPath(gameSlug);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, JSON.stringify({ points: pruned }), "utf8");
   } catch {
     // 파일 저장 실패해도 메모리 이력은 유지
   }
