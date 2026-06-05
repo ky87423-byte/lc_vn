@@ -5,12 +5,22 @@ import { useCallback, useEffect, useState } from "react";
 
 const STORAGE_KEY = "lc_vn_admin_key";
 
+function formatSeconds(s: number): string {
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  const rest = s % 60;
+  return rest === 0 ? `${m}분` : `${m}분 ${rest}초`;
+}
+
 export default function AdminPage() {
   const [password, setPassword] = useState("");
   const [authed, setAuthed] = useState(false);
   const [percent, setPercent] = useState(15);
   const [min, setMin] = useState(1);
   const [max, setMax] = useState(30);
+  const [cacheSeconds, setCacheSeconds] = useState(300);
+  const [cacheMin, setCacheMin] = useState(30);
+  const [cacheMax, setCacheMax] = useState(1800);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{
     type: "ok" | "err";
@@ -31,12 +41,18 @@ export default function AdminPage() {
       }
       const data = (await res.json()) as {
         discountPercent: number;
+        cacheSeconds: number;
         min: number;
         max: number;
+        cacheMin: number;
+        cacheMax: number;
       };
       setPercent(data.discountPercent);
       setMin(data.min);
       setMax(data.max);
+      setCacheSeconds(data.cacheSeconds);
+      setCacheMin(data.cacheMin);
+      setCacheMax(data.cacheMax);
       setAuthed(true);
       sessionStorage.setItem(STORAGE_KEY, key);
     } catch {
@@ -64,17 +80,18 @@ export default function AdminPage() {
           "Content-Type": "application/json",
           "x-admin-key": password,
         },
-        body: JSON.stringify({ discountPercent: percent }),
+        body: JSON.stringify({ discountPercent: percent, cacheSeconds }),
       });
       const data = (await res.json()) as {
         ok?: boolean;
         discountPercent?: number;
+        cacheSeconds?: number;
         error?: string;
       };
       if (res.ok && data.ok) {
         setMessage({
           type: "ok",
-          text: `저장 완료 — 매입가 = 시세 × ${(100 - data.discountPercent!) / 100} (할인율 ${data.discountPercent}%)`,
+          text: `저장 완료 — 할인율 ${data.discountPercent}%, 시세 갱신 주기 ${formatSeconds(data.cacheSeconds!)}`,
         });
       } else {
         setMessage({ type: "err", text: data.error ?? "저장 실패" });
@@ -158,6 +175,47 @@ export default function AdminPage() {
             </p>
           </div>
 
+          <div className="border-t border-zinc-800 pt-6">
+            <div className="flex items-end justify-between">
+              <span className="text-sm font-medium text-zinc-300">
+                시세 갱신 주기 ({formatSeconds(cacheMin)} ~{" "}
+                {formatSeconds(cacheMax)})
+              </span>
+              <span className="text-3xl font-extrabold text-amber-400">
+                {formatSeconds(cacheSeconds)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={cacheMin}
+              max={cacheMax}
+              step={30}
+              value={cacheSeconds}
+              onChange={(e) => setCacheSeconds(Number(e.target.value))}
+              className="mt-3 w-full accent-amber-500"
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {[60, 180, 300, 600, 1800].map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setCacheSeconds(s)}
+                  className={`rounded-md border px-3 py-1.5 text-sm ${
+                    cacheSeconds === s
+                      ? "border-amber-500 text-amber-400"
+                      : "border-zinc-700 text-zinc-300 hover:border-zinc-500"
+                  }`}
+                >
+                  {formatSeconds(s)}
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-zinc-500">
+              짧을수록 시세가 최신이지만 바로템 조회가 잦아집니다. 방문자 수와
+              무관하게 주기당 1회만 조회하므로 1분까지 줄여도 안전합니다.
+            </p>
+          </div>
+
           <button
             onClick={() => void save()}
             disabled={busy || percent < min || percent > max}
@@ -167,7 +225,8 @@ export default function AdminPage() {
           </button>
 
           <p className="text-xs text-zinc-500">
-            저장 즉시 메인 페이지 시세표에 반영됩니다 (시세 캐시는 최대 5분).
+            할인율은 저장 즉시 시세표에 반영됩니다. 시세 원본은 위 갱신
+            주기마다 바로템에서 새로 가져옵니다.
           </p>
         </div>
       )}

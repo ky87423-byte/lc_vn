@@ -7,19 +7,29 @@ const SETTINGS_PATH = path.join(process.cwd(), "data", "settings.json");
 
 export const MIN_DISCOUNT_PERCENT = 1;
 export const MAX_DISCOUNT_PERCENT = 30;
+export const MIN_CACHE_SECONDS = 30;
+export const MAX_CACHE_SECONDS = 1800;
 
 export interface AppSettings {
   /** 매입 할인율 % (1~30) — 매입가 = 시세 × (1 - discountPercent/100) */
   discountPercent: number;
+  /** 바로템 시세 캐시 시간(초, 30~1800) */
+  cacheSeconds: number;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
   discountPercent: Math.round(SITE.discountRate * 100),
+  cacheSeconds: SITE.priceRevalidateSeconds,
 };
 
 export function clampDiscountPercent(n: number): number {
   if (!Number.isFinite(n)) return DEFAULT_SETTINGS.discountPercent;
   return Math.min(MAX_DISCOUNT_PERCENT, Math.max(MIN_DISCOUNT_PERCENT, Math.round(n)));
+}
+
+export function clampCacheSeconds(n: number): number {
+  if (!Number.isFinite(n)) return DEFAULT_SETTINGS.cacheSeconds;
+  return Math.min(MAX_CACHE_SECONDS, Math.max(MIN_CACHE_SECONDS, Math.round(n)));
 }
 
 export async function readSettings(): Promise<AppSettings> {
@@ -29,6 +39,9 @@ export async function readSettings(): Promise<AppSettings> {
     return {
       discountPercent: clampDiscountPercent(
         Number(parsed.discountPercent ?? DEFAULT_SETTINGS.discountPercent)
+      ),
+      cacheSeconds: clampCacheSeconds(
+        Number(parsed.cacheSeconds ?? DEFAULT_SETTINGS.cacheSeconds)
       ),
     };
   } catch {
