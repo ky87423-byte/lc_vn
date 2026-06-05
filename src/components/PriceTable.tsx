@@ -11,23 +11,42 @@ export default function PriceTable() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(false);
     try {
       const res = await fetch("/api/prices");
       if (!res.ok) throw new Error("failed");
       setData((await res.json()) as PriceTableData);
     } catch {
-      setError(true);
+      // 자동 갱신 실패는 조용히 무시하고 기존 표 유지
+      if (!silent) setError(true);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 자동 갱신 — 서버 캐시 주기에 맞춰 폴링, 탭이 보일 때만
+  const pollMs = Math.max(30, data?.cacheSeconds ?? 300) * 1000;
+  useEffect(() => {
+    const tick = () => {
+      if (!document.hidden) void load(true);
+    };
+    const timer = setInterval(tick, pollMs);
+    // 탭으로 돌아오면 즉시 최신화
+    const onVisible = () => {
+      if (!document.hidden) void load(true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [load, pollMs]);
 
   if (loading && !data) {
     return (
