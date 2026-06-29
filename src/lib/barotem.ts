@@ -115,7 +115,12 @@ async function fetchServerLowest(
     const res = await fetch(
       `https://www.barotem.com/product/productTable/${threadId}?${params}`,
       {
-        headers: HEADERS,
+        headers: {
+          ...HEADERS,
+          // 바로템이 2026-06경부터 Referer 검사를 추가함.
+          // 없으면 {"code":0,"msg":"Undefined variable $common"} 에러로 rows가 비어 옴.
+          Referer: `https://www.barotem.com/product/lists/${threadId}`,
+        },
         cache: "no-store", // 캐시는 아래 스냅샷 레이어에서 직접 관리
       }
     );
