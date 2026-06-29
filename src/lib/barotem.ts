@@ -178,12 +178,14 @@ async function fetchSnapshot(game: GameInfo): Promise<MarketSnapshot> {
     quotes,
     unitAmount,
   };
-  // 시세 이력에 기록 (차트/등락률용)
+  // 시세 이력에 기록 (차트/등락률/매물수용)
   const prices: Record<string, number | null> = {};
+  const counts: Record<string, number> = {};
   game.servers.forEach((s, i) => {
     prices[s.id] = quotes[i].price;
+    counts[s.id] = quotes[i].count;
   });
-  await appendHistory(game.slug, snap.fetchedAt, prices);
+  await appendHistory(game.slug, snap.fetchedAt, prices, counts);
   return snap;
 }
 

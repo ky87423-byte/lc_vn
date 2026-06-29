@@ -14,6 +14,8 @@ export interface HistoryPoint {
   t: number; // epoch ms
   /** serverId → 시세(원/단위), 매물 없으면 null */
   p: Record<string, number | null>;
+  /** serverId → 매물 수 (거래가능물품 건수). 구버전 포인트엔 없을 수 있음 */
+  c?: Record<string, number>;
 }
 
 const caches = new Map<string, { points: HistoryPoint[]; loadedAt: number }>();
@@ -44,13 +46,14 @@ export async function readHistory(gameSlug: string): Promise<HistoryPoint[]> {
 export async function appendHistory(
   gameSlug: string,
   t: number,
-  prices: Record<string, number | null>
+  prices: Record<string, number | null>,
+  counts?: Record<string, number>
 ): Promise<void> {
   // 항상 디스크 기준으로 병합 — 다른 모듈 인스턴스의 기록을 덮어쓰지 않도록
   const points = await readFromDisk(gameSlug);
   const last = points[points.length - 1];
   if (!last || t - last.t >= MIN_POINT_GAP_MS) {
-    points.push({ t, p: prices });
+    points.push(counts ? { t, p: prices, c: counts } : { t, p: prices });
   }
   const cutoff = Date.now() - MAX_AGE_MS;
   const pruned = points.filter((pt) => pt.t >= cutoff);
