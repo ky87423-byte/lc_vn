@@ -15,6 +15,7 @@ import {
   readHistory,
   seriesFor,
 } from "@/lib/history";
+import { Trade, writeTrades } from "@/lib/trades";
 
 const HEADERS = {
   "User-Agent":
@@ -26,6 +27,9 @@ interface BarotemRow {
   unit_price?: string; // 예: "만당 2,491원", "천만당 4,000원"
   product_name?: string;
   server?: string;
+  deal_price?: string; // 거래완료 체결 총액 "800,000원"
+  deal_quantity?: string; // "500만 아데나"
+  reg_date?: string; // "2026-06-30 08:15:47"
 }
 
 interface BarotemResponse {
@@ -139,6 +143,50 @@ async function fetchServerLowest(
   }
 }
 
+/** 최근 거래완료(display=3) 수집 — 게임당 1회 요청, 최신순 */
+async function fetchCompletedTrades(threadId: string): Promise<Trade[]> {
+  const params = new URLSearchParams({
+    page: "1",
+    sell: "sell",
+    display: "3", // 거래완료물품
+    orderby: "1", // 최신
+  });
+  try {
+    const res = await fetch(
+      `https://www.barotem.com/product/productTable/${threadId}?${params}`,
+      {
+        headers: {
+          ...HEADERS,
+          Referer: `https://www.barotem.com/product/lists/${threadId}`,
+        },
+        cache: "no-store",
+      }
+    );
+    if (!res.ok) return [];
+    const data = (await res.json()) as BarotemResponse;
+    if (data.code !== 200 || !Array.isArray(data.rows)) return [];
+    return data.rows.slice(0, 40).map((r) => {
+      const up = parseUnitPrice(r.unit_price);
+      const labelMatch = r.unit_price?.match(/([가-힣]+)당/);
+      const deal = r.deal_price
+        ? parseInt(r.deal_price.replace(/[^\d]/g, ""), 10)
+        : NaN;
+      const t = r.reg_date ? Date.parse(r.reg_date.replace(" ", "T")) : NaN;
+      return {
+        server: r.server ?? "",
+        unitPriceKrw: up?.price ?? null,
+        unitLabel: labelMatch ? labelMatch[1] : null,
+        dealPriceKrw: Number.isFinite(deal) ? deal : null,
+        quantity: r.deal_quantity ?? "",
+        regDate: r.reg_date ?? "",
+        t: Number.isFinite(t) ? t : null,
+      } as Trade;
+    });
+  } catch {
+    return [];
+  }
+}
+
 async function fetchKrwToVnd(): Promise<number> {
   try {
     const res = await fetch("https://open.er-api.com/v6/latest/KRW", {
@@ -191,6 +239,12 @@ async function fetchSnapshot(game: GameInfo): Promise<MarketSnapshot> {
     counts[s.id] = quotes[i].count;
   });
   await appendHistory(game.slug, snap.fetchedAt, prices, counts);
+  // 최근 거래완료 피드도 함께 수집(게임당 1회 추가 요청)
+  try {
+    await writeTrades(game.slug, await fetchCompletedTrades(game.threadId));
+  } catch {
+    // 거래완료 수집 실패는 시세 수집에 영향 주지 않음
+  }
   return snap;
 }
 
