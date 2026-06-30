@@ -278,7 +278,7 @@ async function getSnapshot(
 
 export async function getPriceTable(game: GameInfo): Promise<PriceTableData> {
   const settings = await readSettings();
-  const snap = await getSnapshot(game, settings.cacheSeconds);
+  const snap = await getSnapshot(game, game.refreshSeconds ?? settings.cacheSeconds);
   const discountRate = settings.discountPercent / 100;
   const history = await readHistory(game.slug);
   const since24h = Date.now() - 24 * 60 * 60 * 1000;

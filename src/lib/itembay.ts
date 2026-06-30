@@ -122,7 +122,7 @@ const lastCollect = new Map<string, number>();
 export async function collectItembay(game: GameInfo): Promise<void> {
   const cfg = ITEMBAY[game.slug];
   if (!cfg) return;
-  const intervalMs = SITE.priceRevalidateSeconds * 1000;
+  const intervalMs = (game.refreshSeconds ?? SITE.priceRevalidateSeconds) * 1000;
   const last = lastCollect.get(game.slug);
   if (last && Date.now() - last < intervalMs) return;
   lastCollect.set(game.slug, Date.now()); // 선점(중복/오버랩 방지)

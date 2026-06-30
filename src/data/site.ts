@@ -40,6 +40,8 @@ export interface GameInfo {
   fallbackUnit: number;
   /** 서버 필터 파라미터 — 게임마다 opt1/opt2로 다름 (기본 opt1) */
   serverParam?: "opt1" | "opt2";
+  /** 수집 주기(초) 게임별 override. 미지정 시 SITE.priceRevalidateSeconds(300). 짧을수록 실시간↑·차단위험↑ */
+  refreshSeconds?: number;
   servers: ServerInfo[];
 }
 
@@ -51,6 +53,7 @@ export const GAMES: GameInfo[] = [
     threadId: "2382r902",
     currency: "Adena",
     fallbackUnit: 10_000, // 만당
+    refreshSeconds: 180, // 인기 게임 — 3분
     servers: [
       { id: "24487", nameKo: "데포로쥬", nameEn: "Deporoju" },
       { id: "24488", nameKo: "켄라우헬", nameEn: "Kenrauhel" },
@@ -90,6 +93,7 @@ export const GAMES: GameInfo[] = [
     threadId: "2382r811",
     currency: "Kina",
     fallbackUnit: 10_000_000, // 천만당
+    refreshSeconds: 180, // 인기 게임 — 3분
     servers: [
       { id: "23617", nameKo: "월드 거래소(천족)", nameEn: "World Exchange (Elyos)" },
       { id: "23618", nameKo: "월드 거래소(마족)", nameEn: "World Exchange (Asmodians)" },
