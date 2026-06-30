@@ -6,15 +6,21 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   const { getPriceTable } = await import("@/lib/barotem");
+  const { collectItembay } = await import("@/lib/itembay");
   const { GAMES } = await import("@/data/site");
 
   const tick = async () => {
-    // 게임별 순차 수집 — 바로템에 동시 부하를 주지 않도록
+    // 게임별 순차 수집 — 거래소에 동시 부하를 주지 않도록
     for (const game of GAMES) {
       try {
-        await getPriceTable(game);
+        await getPriceTable(game); // 바로템
       } catch {
         // 수집 실패는 다음 주기에 재시도
+      }
+      try {
+        await collectItembay(game); // 아이템베이(설정된 게임만, 자체 주기 게이트)
+      } catch {
+        // 거래소별 실패 격리 — 다른 거래소·게임 수집에 영향 없음
       }
     }
   };

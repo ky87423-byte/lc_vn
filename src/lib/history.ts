@@ -20,13 +20,25 @@ export interface HistoryPoint {
 
 const caches = new Map<string, { points: HistoryPoint[]; loadedAt: number }>();
 
-function historyPath(gameSlug: string): string {
-  return path.join(process.cwd(), "data", `history-${gameSlug}.json`);
+// 거래소별 파일: 바로템(기본)=history-{game}.json, 그 외=history-{game}-{exchange}.json
+function fileKey(gameSlug: string, exchange?: string): string {
+  return exchange && exchange !== "barotem" ? `${gameSlug}-${exchange}` : gameSlug;
 }
 
-async function readFromDisk(gameSlug: string): Promise<HistoryPoint[]> {
+function historyPath(gameSlug: string, exchange?: string): string {
+  return path.join(
+    process.cwd(),
+    "data",
+    `history-${fileKey(gameSlug, exchange)}.json`
+  );
+}
+
+async function readFromDisk(
+  gameSlug: string,
+  exchange?: string
+): Promise<HistoryPoint[]> {
   try {
-    const raw = await fs.readFile(historyPath(gameSlug), "utf8");
+    const raw = await fs.readFile(historyPath(gameSlug, exchange), "utf8");
     const parsed = JSON.parse(raw) as { points?: HistoryPoint[] };
     return Array.isArray(parsed.points) ? parsed.points : [];
   } catch {
@@ -34,12 +46,16 @@ async function readFromDisk(gameSlug: string): Promise<HistoryPoint[]> {
   }
 }
 
-export async function readHistory(gameSlug: string): Promise<HistoryPoint[]> {
-  const cached = caches.get(gameSlug);
+export async function readHistory(
+  gameSlug: string,
+  exchange?: string
+): Promise<HistoryPoint[]> {
+  const key = fileKey(gameSlug, exchange);
+  const cached = caches.get(key);
   if (cached && Date.now() - cached.loadedAt < READ_TTL_MS)
     return cached.points;
-  const points = await readFromDisk(gameSlug);
-  caches.set(gameSlug, { points, loadedAt: Date.now() });
+  const points = await readFromDisk(gameSlug, exchange);
+  caches.set(key, { points, loadedAt: Date.now() });
   return points;
 }
 
@@ -47,19 +63,21 @@ export async function appendHistory(
   gameSlug: string,
   t: number,
   prices: Record<string, number | null>,
-  counts?: Record<string, number>
+  counts?: Record<string, number>,
+  exchange?: string
 ): Promise<void> {
+  const key = fileKey(gameSlug, exchange);
   // 항상 디스크 기준으로 병합 — 다른 모듈 인스턴스의 기록을 덮어쓰지 않도록
-  const points = await readFromDisk(gameSlug);
+  const points = await readFromDisk(gameSlug, exchange);
   const last = points[points.length - 1];
   if (!last || t - last.t >= MIN_POINT_GAP_MS) {
     points.push(counts ? { t, p: prices, c: counts } : { t, p: prices });
   }
   const cutoff = Date.now() - MAX_AGE_MS;
   const pruned = points.filter((pt) => pt.t >= cutoff);
-  caches.set(gameSlug, { points: pruned, loadedAt: Date.now() });
+  caches.set(key, { points: pruned, loadedAt: Date.now() });
   try {
-    const file = historyPath(gameSlug);
+    const file = historyPath(gameSlug, exchange);
     await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, JSON.stringify({ points: pruned }), "utf8");
   } catch {
