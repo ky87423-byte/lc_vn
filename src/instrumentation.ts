@@ -7,7 +7,11 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   const { getPriceTable } = await import("@/lib/barotem");
   const { collectItembay } = await import("@/lib/itembay");
+  const { startTelegramPoller, checkAlerts } = await import("@/lib/telegram");
   const { GAMES } = await import("@/data/site");
+
+  // 텔레그램 알림 봇 수신기(getUpdates 폴링) — 토큰 없으면 no-op
+  startTelegramPoller();
   // 아이템매니아/땡스아이템은 이 VPS(말레이시아)에서 한국 외 차단됨
   // (매니아=연결 타임아웃, 땡스=403) → 현재 서버에선 수집 불가.
   // 코드는 lib/itemmania.ts에 보존(향후 KR 수집기 확보 시 활성화).
@@ -25,6 +29,11 @@ export async function register() {
       } catch {
         // 거래소별 실패 격리 — 다른 거래소·게임 수집에 영향 없음
       }
+    }
+    try {
+      await checkAlerts(); // 텔레그램 가격 알림 체크(토큰 없으면 no-op)
+    } catch {
+      // 알림 실패 격리
     }
   };
   void tick();
