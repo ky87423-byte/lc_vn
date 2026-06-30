@@ -53,7 +53,7 @@ export async function collectItemmania(game: GameInfo): Promise<void> {
   try {
     const res = await fetch(
       `https://www.itemmania.com/_xml/gamemoney_servers.xml.php?gamecode=${gamecode}`,
-      { headers: HEADERS, cache: "no-store" }
+      { headers: HEADERS, cache: "no-store", signal: AbortSignal.timeout(8000) }
     );
     if (!res.ok) return;
     xml = await res.text();

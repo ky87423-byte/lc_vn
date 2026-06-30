@@ -69,7 +69,7 @@ async function fetchLowest(seq: number): Promise<number | null> {
   try {
     const res = await fetch(
       `https://www.itembay.com/item/api/sell/getRealTimeMarket?iGameServerSeq=${seq}`,
-      { headers: HEADERS, cache: "no-store" }
+      { headers: HEADERS, cache: "no-store", signal: AbortSignal.timeout(8000) }
     );
     if (!res.ok) return null;
     const j = (await res.json()) as { data?: { iLowestPrice?: number } };
@@ -87,7 +87,7 @@ async function fetchBasePrice(
   try {
     const res = await fetch(
       `https://www.itembay.com/api/game/server/market-info?iGameSeq=${gameSeq}&iGameServerSeq=${seq}`,
-      { headers: HEADERS, cache: "no-store" }
+      { headers: HEADERS, cache: "no-store", signal: AbortSignal.timeout(8000) }
     );
     if (!res.ok) return null;
     const j = (await res.json()) as { data?: { biBasePrice?: number } };

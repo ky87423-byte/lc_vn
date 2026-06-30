@@ -7,8 +7,10 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   const { getPriceTable } = await import("@/lib/barotem");
   const { collectItembay } = await import("@/lib/itembay");
-  const { collectItemmania } = await import("@/lib/itemmania");
   const { GAMES } = await import("@/data/site");
+  // 아이템매니아/땡스아이템은 이 VPS(말레이시아)에서 한국 외 차단됨
+  // (매니아=연결 타임아웃, 땡스=403) → 현재 서버에선 수집 불가.
+  // 코드는 lib/itemmania.ts에 보존(향후 KR 수집기 확보 시 활성화).
 
   const tick = async () => {
     // 게임별 순차 수집 — 거래소에 동시 부하를 주지 않도록
@@ -22,11 +24,6 @@ export async function register() {
         await collectItembay(game); // 아이템베이(설정된 게임만, 자체 주기 게이트)
       } catch {
         // 거래소별 실패 격리 — 다른 거래소·게임 수집에 영향 없음
-      }
-      try {
-        await collectItemmania(game); // 아이템매니아(게임당 1콜 XML)
-      } catch {
-        // 거래소별 실패 격리
       }
     }
   };
