@@ -10,6 +10,7 @@
 //
 // 서버명이 우리와 동일 → 이름으로 매핑(코드 매핑 불필요). gamecode만 게임별 설정.
 
+import { fetch as uFetch, ProxyAgent } from "undici";
 import { GameInfo, SITE } from "@/data/site";
 import { appendHistory } from "@/lib/history";
 
@@ -18,6 +19,11 @@ const HEADERS = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36",
   Referer: "https://www.itemmania.com/game_info/money/",
 };
+
+// 아이템매니아는 한국 외 차단 → 한국 프록시(KR_PROXY_URL) 경유. 없으면 수집 skip.
+const proxy = process.env.KR_PROXY_URL
+  ? new ProxyAgent(process.env.KR_PROXY_URL)
+  : null;
 
 // 거래소 부품: 게임 → 아이템매니아 gamecode
 const ITEMMANIA: Record<string, number> = {
@@ -43,17 +49,17 @@ function attr(tag: string, name: string): string | null {
 /** 게임의 아이템매니아 시세를 수집해 history-{game}-itemmania.json에 기록 */
 export async function collectItemmania(game: GameInfo): Promise<void> {
   const gamecode = ITEMMANIA[game.slug];
-  if (!gamecode) return;
-  const intervalMs = SITE.priceRevalidateSeconds * 1000;
+  if (!gamecode || !proxy) return; // 프록시 없으면 수집 skip(한국 외 차단)
+  const intervalMs = (game.refreshSeconds ?? SITE.priceRevalidateSeconds) * 1000;
   const last = lastCollect.get(game.slug);
   if (last && Date.now() - last < intervalMs) return;
   lastCollect.set(game.slug, Date.now()); // 선점(중복/오버랩 방지)
 
   let xml: string;
   try {
-    const res = await fetch(
+    const res = await uFetch(
       `https://www.itemmania.com/_xml/gamemoney_servers.xml.php?gamecode=${gamecode}`,
-      { headers: HEADERS, cache: "no-store", signal: AbortSignal.timeout(8000) }
+      { headers: HEADERS, dispatcher: proxy, signal: AbortSignal.timeout(12000) }
     );
     if (!res.ok) return;
     xml = await res.text();
