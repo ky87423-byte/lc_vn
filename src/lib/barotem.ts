@@ -106,14 +106,15 @@ interface ServerQuote {
 
 async function fetchServerLowest(
   threadId: string,
-  serverId: string
+  serverId: string,
+  serverParam: "opt1" | "opt2" = "opt1"
 ): Promise<ServerQuote> {
   const params = new URLSearchParams({
     page: "1",
     sell: "sell",
     display: "2", // 거래가능물품
     orderby: "3", // 낮은가격순
-    opt1: serverId,
+    [serverParam]: serverId, // 게임마다 서버 필터가 opt1/opt2로 다름
   });
   try {
     const res = await fetch(
@@ -221,7 +222,9 @@ const inflights = new Map<string, Promise<MarketSnapshot>>();
 async function fetchSnapshot(game: GameInfo): Promise<MarketSnapshot> {
   const [krwToVnd, ...quotes] = await Promise.all([
     fetchKrwToVnd(),
-    ...game.servers.map((s) => fetchServerLowest(game.threadId, s.id)),
+    ...game.servers.map((s) =>
+      fetchServerLowest(game.threadId, s.id, game.serverParam ?? "opt1")
+    ),
   ]);
   const unitAmount =
     quotes.find((q) => q.unit !== null)?.unit ?? game.fallbackUnit;
