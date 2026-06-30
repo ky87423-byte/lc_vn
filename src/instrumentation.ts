@@ -7,6 +7,7 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   const { getPriceTable } = await import("@/lib/barotem");
   const { collectItembay } = await import("@/lib/itembay");
+  const { collectItemmania } = await import("@/lib/itemmania");
   const { GAMES } = await import("@/data/site");
 
   const tick = async () => {
@@ -21,6 +22,11 @@ export async function register() {
         await collectItembay(game); // 아이템베이(설정된 게임만, 자체 주기 게이트)
       } catch {
         // 거래소별 실패 격리 — 다른 거래소·게임 수집에 영향 없음
+      }
+      try {
+        await collectItemmania(game); // 아이템매니아(게임당 1콜 XML)
+      } catch {
+        // 거래소별 실패 격리
       }
     }
   };
