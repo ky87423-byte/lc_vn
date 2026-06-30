@@ -18,8 +18,9 @@ const API = TOKEN ? `https://api.telegram.org/bot${TOKEN}` : "";
 const ALERTS_PATH = path.join(process.cwd(), "data", "alerts.json");
 
 export interface AlertSub {
-  id: string; // chatId:slug:serverId:dir
-  chatId: number;
+  id: string;
+  chatId?: number; // 텔레그램 대상
+  webhook?: string; // 디스코드 대상(채널 웹훅 URL)
   slug: string;
   serverId: string;
   threshold: number; // 원/단위
@@ -66,6 +67,34 @@ async function sendMessage(chatId: number, text: string): Promise<void> {
     parse_mode: "HTML",
     disable_web_page_preview: true,
   });
+}
+
+const DISCORD_WEBHOOK_RE =
+  /^https:\/\/(?:discord|discordapp)\.com\/api\/webhooks\/\d+\/[\w-]+$/;
+
+// 디스코드 채널 웹훅으로 메시지 전송(HTML 아님 → 태그 제거한 평문)
+async function sendDiscord(webhook: string, text: string): Promise<boolean> {
+  if (!DISCORD_WEBHOOK_RE.test(webhook)) return false;
+  try {
+    const res = await fetch(webhook, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: "게임시세 알림",
+        content: text.replace(/<\/?b>/g, "**"),
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// 구독 대상에 맞춰 발송
+async function notify(sub: AlertSub, text: string): Promise<void> {
+  if (sub.webhook) await sendDiscord(sub.webhook, text);
+  else if (sub.chatId) await sendMessage(sub.chatId, text);
 }
 
 // ---- 이름/시세 조회 ----
@@ -159,6 +188,50 @@ async function clearSubs(chatId: number): Promise<void> {
   await sendMessage(chatId, "모든 알림을 해제했어요.");
 }
 
+// ---- 디스코드 구독 등록 (게임시세 폼 → lc_vn /api/alert) ----
+export interface DiscordRegResult {
+  ok: boolean;
+  error?: string;
+}
+export async function addDiscordSub(params: {
+  webhook: string;
+  slug: string;
+  serverId: string;
+  threshold: number;
+  dir: "below" | "above";
+}): Promise<DiscordRegResult> {
+  const { webhook, slug, serverId, threshold, dir } = params;
+  if (!DISCORD_WEBHOOK_RE.test(webhook))
+    return { ok: false, error: "유효한 디스코드 웹훅 URL이 아닙니다." };
+  const { game, server } = lookup(slug, serverId);
+  if (!game || !server || !Number.isFinite(threshold) || threshold <= 0)
+    return { ok: false, error: "알림 대상을 찾지 못했습니다." };
+
+  const webhookId = webhook.match(/webhooks\/(\d+)\//)?.[1] ?? webhook.slice(-12);
+  const id = `d:${webhookId}:${slug}:${serverId}:${dir}`;
+  const subs = await readSubs();
+  const existing = subs.find((s) => s.id === id);
+  const sub: AlertSub = {
+    id,
+    webhook,
+    slug,
+    serverId,
+    threshold,
+    dir,
+    armed: true,
+    createdAt: existing?.createdAt ?? Date.now(),
+  };
+  await writeSubs([...subs.filter((s) => s.id !== id), sub]);
+
+  const dirText = dir === "below" ? "이하" : "이상";
+  await sendDiscord(
+    webhook,
+    `✅ **${game.nameKo} ${server.nameKo}** 알림 등록 완료\n` +
+      `기준: ${threshold.toLocaleString("ko-KR")}원 ${dirText} — 조건 도달 시 알려드립니다.`
+  );
+  return { ok: true };
+}
+
 // ---- getUpdates 폴러 ----
 let polling = false;
 export function startTelegramPoller(): void {
@@ -221,8 +294,8 @@ export async function checkAlerts(): Promise<void> {
     if (sub.armed && hit) {
       const { game, server } = lookup(sub.slug, sub.serverId);
       const dirText = sub.dir === "below" ? "이하" : "이상";
-      await sendMessage(
-        sub.chatId,
+      await notify(
+        sub,
         `🔔 <b>${game?.nameKo ?? sub.slug} ${server?.nameKo ?? sub.serverId}</b>\n` +
           `현재 <b>${price.toLocaleString("ko-KR")}원</b> (기준 ${sub.threshold.toLocaleString("ko-KR")}원 ${dirText} 도달)\n` +
           `${SITE_URL}/ko/${sub.slug}/${sub.serverId}`
