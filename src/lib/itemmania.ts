@@ -25,9 +25,11 @@ const proxy = process.env.KR_PROXY_URL
   ? new ProxyAgent(process.env.KR_PROXY_URL)
   : null;
 
-// 거래소 부품: 게임 → 아이템매니아 gamecode
+// 거래소 부품: 게임 → 아이템매니아 gamecode (gamemoney_servers.xml.php?gamecode=)
+// 서버명이 우리 nameKo와 일치하면 자동 매핑. result="na"면 매니아가 시세 미제공.
 const ITEMMANIA: Record<string, number> = {
   "lineage-classic": 5913,
+  aion2: 5799, // 서버명 (천족)/(마족) 우리와 동일, 단위 정규화 OK
 };
 
 const UNIT_AMOUNT: Record<string, number> = {
