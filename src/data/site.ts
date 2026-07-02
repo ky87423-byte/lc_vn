@@ -165,7 +165,7 @@ export const GAMES: GameInfo[] = [
     nameEn: "SOL:enchant",
     threadId: "2382r1003",
     currency: "Diamond",
-    fallbackUnit: 10_000,
+    fallbackUnit: 1_000,
     servers: [
       { id: "26754", nameKo: "칼테온", nameEn: "Kalteon" },
       { id: "26755", nameKo: "린델", nameEn: "Lindel" },
