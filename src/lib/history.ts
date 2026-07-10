@@ -1,12 +1,12 @@
 // 시세 이력 — 게임별로 스냅샷마다 서버별 최저가를 data/history-{game}.json에 축적
-// 7일 초과분은 정리.
+// 90일 초과분은 정리(일봉 차트용 장기 데이터. 과거는 소급 불가, 변경 시점부터 누적).
 // 주의: Next.js는 instrumentation과 라우트 핸들러를 별도 모듈 인스턴스로 로드하므로
 // 파일을 단일 진실 공급원으로 사용한다(append 시 항상 디스크에서 다시 읽어 병합).
 
 import { promises as fs } from "fs";
 import path from "path";
 
-const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7일
+const MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000; // 90일
 const MIN_POINT_GAP_MS = 15 * 1000; // 너무 촘촘한 중복 포인트 방지
 const READ_TTL_MS = 15 * 1000; // 조회용 짧은 메모리 캐시
 
