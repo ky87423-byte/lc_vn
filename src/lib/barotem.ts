@@ -104,6 +104,27 @@ interface ServerQuote {
   count: number;
 }
 
+/**
+ * 오등록 초저가(예: 1,500원대 서버에 160원)를 배제한 "정상 최저가".
+ * rows는 낮은가격순(orderby=3). 상위 표본의 중앙값 40% 미만은 잘못된 매물로
+ * 보고 건너뛴 뒤 첫 정상 매물을 최저가로 채택한다(gamebit식 수집단 노이즈 제거).
+ * 표본이 3개 미만이면 판단 불가라 최저가를 그대로 쓴다.
+ */
+function robustLowest(
+  rows: BarotemRow[]
+): { price: number; unit: number | null } | null {
+  const parsed = rows
+    .slice(0, 12)
+    .map((r) => parseUnitPrice(r.unit_price))
+    .filter((x): x is { price: number; unit: number | null } => x !== null);
+  if (parsed.length === 0) return null;
+  if (parsed.length < 3) return parsed[0];
+  const sorted = parsed.map((p) => p.price).slice().sort((a, b) => a - b);
+  const med = sorted[Math.floor(sorted.length / 2)];
+  const floor = med * 0.4;
+  return parsed.find((p) => p.price >= floor) ?? parsed[0];
+}
+
 async function fetchServerLowest(
   threadId: string,
   serverId: string,
@@ -133,7 +154,7 @@ async function fetchServerLowest(
     const data = (await res.json()) as BarotemResponse;
     if (data.code !== 200 || !Array.isArray(data.rows) || data.rows.length === 0)
       return { price: null, unit: null, count: parseTotal(data.total) };
-    const parsed = parseUnitPrice(data.rows[0].unit_price);
+    const parsed = robustLowest(data.rows);
     return {
       price: parsed?.price ?? null,
       unit: parsed?.unit ?? null,
