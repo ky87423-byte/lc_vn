@@ -143,7 +143,9 @@ function robustLowestByBaro(
     .map((r) => {
       const bp = Number(r.baro_price);
       const ux = Number(r.unitExcut);
-      return bp > 0 && ux > 0 ? bp / ux : null;
+      // unitExcut<1000이면 셀러가 수량을 만/억 단위로 기입(1·2·10) → 값 폭발하므로 제외.
+      // 전부 그런 서버는 신뢰 가격 없음 → null(데이터 없음)이 폭발값보다 정직.
+      return bp > 0 && ux >= 1000 ? bp / ux : null;
     })
     .filter((x): x is number => x !== null && x > 0)
     .sort((a, b) => a - b);
