@@ -22,6 +22,7 @@ export default function AdminPage() {
   const [cacheMin, setCacheMin] = useState(30);
   const [cacheMax, setCacheMax] = useState(1800);
   const [busy, setBusy] = useState(false);
+  const [unread, setUnread] = useState<number | null>(null); // 미확인 문의 건수
   const [message, setMessage] = useState<{
     type: "ok" | "err";
     text: string;
@@ -55,6 +56,20 @@ export default function AdminPage() {
       setCacheMax(data.cacheMax);
       setAuthed(true);
       sessionStorage.setItem(STORAGE_KEY, key);
+      // 미확인 문의 건수 배지
+      try {
+        const iq = await fetch("/api/admin/inquiries", {
+          headers: { "x-admin-key": key },
+        });
+        if (iq.ok) {
+          const list = (await iq.json()) as {
+            inquiries: { confirmed: boolean }[];
+          };
+          setUnread(list.inquiries.filter((x) => !x.confirmed).length);
+        }
+      } catch {
+        /* 배지 실패는 무시 */
+      }
     } catch {
       setMessage({ type: "err", text: "서버에 연결할 수 없습니다." });
     } finally {
@@ -137,7 +152,28 @@ export default function AdminPage() {
           </button>
         </form>
       ) : (
-        <div className="mt-8 space-y-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
+        <>
+          {/* 관리자 페이지 링크 허브 */}
+          <nav className="mt-6 flex flex-wrap gap-2">
+            <a
+              href="/admin/events"
+              className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 hover:border-amber-500"
+            >
+              차트 이벤트 마커
+            </a>
+            <a
+              href="/admin/inquiries"
+              className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 hover:border-amber-500"
+            >
+              문의 쪽지
+              {unread !== null && unread > 0 && (
+                <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white">
+                  {unread}
+                </span>
+              )}
+            </a>
+          </nav>
+          <div className="mt-6 space-y-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
           <div>
             <div className="flex items-end justify-between">
               <span className="text-sm font-medium text-zinc-300">
@@ -228,7 +264,8 @@ export default function AdminPage() {
             할인율은 저장 즉시 시세표에 반영됩니다. 시세 원본은 위 갱신
             주기마다 바로템에서 새로 가져옵니다.
           </p>
-        </div>
+          </div>
+        </>
       )}
 
       {message && (
