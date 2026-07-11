@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { GAMES } from "@/data/site";
+import { AdminNav } from "@/components/AdminNav";
 
 const STORAGE_KEY = "lc_vn_admin_key";
 
@@ -162,6 +163,7 @@ export default function AdminEventsPage() {
 
   return (
     <main style={{ maxWidth: 760, margin: "40px auto", fontFamily: "sans-serif", padding: 16 }}>
+      <AdminNav current="events" />
       <h1>차트 이벤트 마커 {editId && "(수정 중)"}</h1>
       <p style={{ color: "#666", fontSize: 13 }}>
         gametick 서버 상세 캔들차트 위에 핀으로 표시됩니다. 서버=전체면 그 게임 모든 서버에 표시.

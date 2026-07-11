@@ -2,6 +2,7 @@
 
 // 관리자 — 광고/제휴 문의 쪽지 조회. 확인완료 토글, 삭제.
 import { useCallback, useEffect, useState } from "react";
+import { AdminNav } from "@/components/AdminNav";
 
 const STORAGE_KEY = "lc_vn_admin_key";
 
@@ -91,6 +92,7 @@ export default function AdminInquiriesPage() {
 
   return (
     <main style={{ maxWidth: 720, margin: "40px auto", fontFamily: "sans-serif", padding: 16 }}>
+      <AdminNav current="inquiries" />
       <h1>광고/제휴 문의 ({items.length}건, 미확인 {unread})</h1>
       {sorted.length === 0 && <p style={{ color: "#666" }}>문의가 없습니다.</p>}
       {sorted.map((it) => (
