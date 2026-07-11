@@ -306,6 +306,22 @@ async function fetchSnapshot(game: GameInfo): Promise<MarketSnapshot> {
     prices[s.id] = quotes[i].price;
     counts[s.id] = quotes[i].count;
   });
+  // 크로스서버 안전망 — 같은 게임 서버끼리 시세는 촘촘하다. 게임 중앙값의 8배를
+  // 초과하는 서버는 파싱 이상치(예: 아이온 셀러 단위 오기입)로 보고 null 처리.
+  // 정상 게임은 서버 간 편차가 작아 걸리지 않는다.
+  const vals = Object.values(prices).filter(
+    (v): v is number => typeof v === "number" && v > 0
+  );
+  if (vals.length >= 4) {
+    const sorted = vals.slice().sort((a, b) => a - b);
+    const med = sorted[Math.floor(sorted.length / 2)];
+    if (med > 0) {
+      for (const id of Object.keys(prices)) {
+        const v = prices[id];
+        if (typeof v === "number" && v > med * 8) prices[id] = null;
+      }
+    }
+  }
   await appendHistory(game.slug, snap.fetchedAt, prices, counts);
   // 최근 거래완료 피드도 함께 수집(게임당 1회 추가 요청)
   try {
