@@ -120,10 +120,7 @@ export default function AdminPage() {
 
   return (
     <main className="mx-auto w-full max-w-lg px-4 py-16">
-      <h1 className="text-2xl font-bold text-zinc-50">관리자 설정</h1>
-      <p className="mt-1 text-sm text-zinc-400">
-        매입 할인율 설정 — 매입가 = 바로템 최저가 × (1 − 할인율)
-      </p>
+      <h1 className="text-2xl font-bold text-zinc-50">관리자</h1>
 
       {!authed ? (
         <form
