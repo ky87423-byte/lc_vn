@@ -137,22 +137,27 @@ function robustLowestByBaro(
   rows: BarotemRow[],
   fallbackUnit: number
 ): number | null {
+  // 게임머니 1개당 가격(=baro_price/unitExcut). 단, 셀러가 수량을 만/억 단위로
+  // 기입한 행(unitExcut=1·2·10 등)은 값이 폭발하지만 정렬 시 위쪽이라 무시됨.
   const perSingle = rows
-    .slice(0, 12)
     .map((r) => {
       const bp = Number(r.baro_price);
       const ux = Number(r.unitExcut);
       return bp > 0 && ux > 0 ? bp / ux : null;
     })
-    .filter((x): x is number => x !== null && x > 0);
+    .filter((x): x is number => x !== null && x > 0)
+    .sort((a, b) => a - b);
   if (perSingle.length === 0) return null;
-  let list = perSingle;
-  if (perSingle.length >= 3) {
-    const sorted = perSingle.slice().sort((a, b) => a - b);
-    const med = sorted[Math.floor(sorted.length / 2)];
-    list = perSingle.filter((p) => p >= med * 0.4); // 오등록 초저가 배제
+  // 아래에서부터, 이웃보다 60%+ 급락한 고립 초저가(오등록)는 건너뛰고 첫 정상 최저.
+  let lowest = perSingle[perSingle.length - 1];
+  for (let i = 0; i < perSingle.length; i++) {
+    const next = perSingle[i + 1] ?? perSingle[i];
+    if (perSingle[i] >= next * 0.4) {
+      lowest = perSingle[i];
+      break;
+    }
   }
-  return Math.round(Math.min(...list) * fallbackUnit);
+  return Math.round(lowest * fallbackUnit);
 }
 
 async function fetchServerLowest(
