@@ -30,6 +30,9 @@ interface BarotemRow {
   deal_price?: string; // 거래완료 체결 총액 "800,000원"
   deal_quantity?: string; // "500만 아데나"
   reg_date?: string; // "2026-06-30 08:15:47"
+  // 일부 게임(레이븐2·아이온 등)은 unit_price 없이 총액+수량으로만 옴 → 대체 계산용
+  baro_price?: number | string; // 매물 총액(원)
+  unitExcut?: number | string; // 매물 수량(게임머니 개수)
 }
 
 interface BarotemResponse {
@@ -125,10 +128,38 @@ function robustLowest(
   return parsed.find((p) => p.price >= floor) ?? parsed[0];
 }
 
+/**
+ * unit_price가 없는 게임(레이븐2·아이온 등) 폴백 — baro_price(총액)/unitExcut(수량)로
+ * 게임머니 1개당 가격을 구해 fallbackUnit 단위 가격으로 환산. 오등록 배제 후 최저.
+ * 검증: 리니지클래식 baro_price/unitExcut × 10000 = unit_price 만당가와 정확 일치.
+ */
+function robustLowestByBaro(
+  rows: BarotemRow[],
+  fallbackUnit: number
+): number | null {
+  const perSingle = rows
+    .slice(0, 12)
+    .map((r) => {
+      const bp = Number(r.baro_price);
+      const ux = Number(r.unitExcut);
+      return bp > 0 && ux > 0 ? bp / ux : null;
+    })
+    .filter((x): x is number => x !== null && x > 0);
+  if (perSingle.length === 0) return null;
+  let list = perSingle;
+  if (perSingle.length >= 3) {
+    const sorted = perSingle.slice().sort((a, b) => a - b);
+    const med = sorted[Math.floor(sorted.length / 2)];
+    list = perSingle.filter((p) => p >= med * 0.4); // 오등록 초저가 배제
+  }
+  return Math.round(Math.min(...list) * fallbackUnit);
+}
+
 async function fetchServerLowest(
   threadId: string,
   serverId: string,
-  serverParam: "opt1" | "opt2" = "opt1"
+  serverParam: "opt1" | "opt2" = "opt1",
+  fallbackUnit = 10000
 ): Promise<ServerQuote> {
   const params = new URLSearchParams({
     page: "1",
@@ -154,12 +185,13 @@ async function fetchServerLowest(
     const data = (await res.json()) as BarotemResponse;
     if (data.code !== 200 || !Array.isArray(data.rows) || data.rows.length === 0)
       return { price: null, unit: null, count: parseTotal(data.total) };
+    const count = parseTotal(data.total);
     const parsed = robustLowest(data.rows);
-    return {
-      price: parsed?.price ?? null,
-      unit: parsed?.unit ?? null,
-      count: parseTotal(data.total),
-    };
+    if (parsed) return { price: parsed.price, unit: parsed.unit, count };
+    // unit_price가 없는 게임(레이븐2·아이온) — 총액/수량 폴백
+    const alt = robustLowestByBaro(data.rows, fallbackUnit);
+    if (alt !== null) return { price: alt, unit: fallbackUnit, count };
+    return { price: null, unit: null, count };
   } catch {
     return { price: null, unit: null, count: 0 };
   }
@@ -244,7 +276,12 @@ async function fetchSnapshot(game: GameInfo): Promise<MarketSnapshot> {
   const [krwToVnd, ...quotes] = await Promise.all([
     fetchKrwToVnd(),
     ...game.servers.map((s) =>
-      fetchServerLowest(game.threadId, s.id, game.serverParam ?? "opt1")
+      fetchServerLowest(
+        game.threadId,
+        s.id,
+        game.serverParam ?? "opt1",
+        game.fallbackUnit
+      )
     ),
   ]);
   const unitAmount =
