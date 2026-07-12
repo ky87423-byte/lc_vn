@@ -12,6 +12,12 @@ const TABS = [
   { id: "settings", label: "gmhm365 · 할인율", href: "/admin" },
   { id: "events", label: "차트 이벤트 마커", href: "/admin/events" },
   { id: "inquiries", label: "문의 쪽지", href: "/admin/inquiries" },
+  {
+    id: "stats",
+    label: "방문자 통계 ↗",
+    href: "https://stats.gameboostforge.com",
+    external: true,
+  },
 ];
 
 export function AdminNav({ current }: { current: string }) {
@@ -47,11 +53,13 @@ export function AdminNav({ current }: { current: string }) {
       }}
     >
       {TABS.map((t) => {
-        const active = t.id === current;
+        const active = !t.external && t.id === current;
         return (
           <a
             key={t.id}
             href={t.href}
+            target={t.external ? "_blank" : undefined}
+            rel={t.external ? "noopener noreferrer" : undefined}
             style={{
               display: "inline-flex",
               alignItems: "center",
