@@ -204,6 +204,70 @@ async function fetchServerLowest(
   }
 }
 
+/** 전체 거래가능 매물을 페이징해 모은다(낮은가격순). grouped 수집용. */
+async function fetchAllRows(
+  threadId: string,
+  maxPages = 20
+): Promise<BarotemRow[]> {
+  const all: BarotemRow[] = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const params = new URLSearchParams({
+      page: String(page),
+      sell: "sell",
+      display: "2",
+      orderby: "3",
+    });
+    try {
+      const res = await fetch(
+        `https://www.barotem.com/product/productTable/${threadId}?${params}`,
+        {
+          headers: {
+            ...HEADERS,
+            Referer: `https://www.barotem.com/product/lists/${threadId}`,
+          },
+          cache: "no-store",
+        }
+      );
+      if (!res.ok) break;
+      const data = (await res.json()) as BarotemResponse;
+      if (data.code !== 200 || !Array.isArray(data.rows) || data.rows.length === 0)
+        break;
+      all.push(...data.rows);
+      if (data.rows.length < 60) break; // 마지막 페이지
+    } catch {
+      break;
+    }
+  }
+  return all;
+}
+
+/**
+ * grouped 수집 — 전체 매물을 한 번에 긁어 서버명(row.server)으로 그룹핑.
+ * 서버가 매우 많은 게임(오딘 108서버)에서 서버별 필터 요청(108회) 대신
+ * 페이징 요청(~14회)만으로 전 서버 시세를 얻는다. 서버 매칭 키 = 서버 nameKo.
+ * quotes는 game.servers 순서로 반환(빈 서버는 null).
+ */
+async function fetchGroupedQuotes(game: GameInfo): Promise<ServerQuote[]> {
+  const rows = await fetchAllRows(game.threadId);
+  const byServer = new Map<string, BarotemRow[]>();
+  for (const r of rows) {
+    const s = String(r.server ?? "").trim();
+    if (!s) continue;
+    const arr = byServer.get(s);
+    if (arr) arr.push(r);
+    else byServer.set(s, [r]);
+  }
+  return game.servers.map((s) => {
+    const rs = byServer.get(s.nameKo) ?? [];
+    if (rs.length === 0) return { price: null, unit: null, count: 0 };
+    const parsed = robustLowest(rs);
+    if (parsed) return { price: parsed.price, unit: parsed.unit, count: rs.length };
+    const alt = robustLowestByBaro(rs, game.fallbackUnit);
+    if (alt !== null) return { price: alt, unit: game.fallbackUnit, count: rs.length };
+    return { price: null, unit: null, count: rs.length };
+  });
+}
+
 /** 최근 거래완료(display=3) 수집 — 게임당 1회 요청, 최신순 */
 async function fetchCompletedTrades(threadId: string): Promise<Trade[]> {
   const params = new URLSearchParams({
@@ -280,16 +344,21 @@ const snapshots = new Map<string, MarketSnapshot>();
 const inflights = new Map<string, Promise<MarketSnapshot>>();
 
 async function fetchSnapshot(game: GameInfo): Promise<MarketSnapshot> {
-  const [krwToVnd, ...quotes] = await Promise.all([
+  // grouped 게임(서버 다수)은 전체 매물 1회 페이징, 그 외는 서버별 병렬 요청.
+  const [krwToVnd, quotes] = await Promise.all([
     fetchKrwToVnd(),
-    ...game.servers.map((s) =>
-      fetchServerLowest(
-        game.threadId,
-        s.id,
-        game.serverParam ?? "opt1",
-        game.fallbackUnit
-      )
-    ),
+    game.collectMode === "grouped"
+      ? fetchGroupedQuotes(game)
+      : Promise.all(
+          game.servers.map((s) =>
+            fetchServerLowest(
+              game.threadId,
+              s.id,
+              game.serverParam ?? "opt1",
+              game.fallbackUnit
+            )
+          )
+        ),
   ]);
   const unitAmount =
     quotes.find((q) => q.unit !== null)?.unit ?? game.fallbackUnit;
